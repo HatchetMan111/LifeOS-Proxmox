@@ -71,6 +71,14 @@ pct stop <ID> && pct destroy <ID>
 pct reboot <ID> && sleep 60 && curl -fs http://<CT-IP>:8080/login.php && echo REBOOT-OK
 ```
 
+## Troubleshooting
+
+- Installer bricht mit `mariadb startet nicht` ab → CT braucht `nesting=1`
+  (aktuelles Script setzt das automatisch; Alt-CTs: `pct set <ID> --features nesting=1`).
+- Web UI im CT erreichbar (`pct exec <ID> -- curl -fs http://127.0.0.1:8080/login.php`),
+  aber nicht vom Host/LAN → CT-IP prüfen (`pct exec <ID> -- ip -4 addr`, DHCP kann
+  sich nach Reboot ändern) und Proxmox-Firewall (Datacenter → Firewall, CT-Optionen) prüfen.
+
 ## Erwartete Ausgabe (Kurzform)
 
 ```

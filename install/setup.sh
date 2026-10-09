@@ -148,7 +148,16 @@ cat > /etc/apache2/sites-available/lifeos.conf <<VHOST
 VHOST
 a2ensite lifeos >/dev/null
 apache2ctl configtest || { echo "[GAST] FEHLER: Apache-Config fehlerhaft." >&2; exit 1; }
-systemctl enable --now apache2
+systemctl enable apache2
+# H2: enable --now lädt Config-Aenderungen bei laufendem Apache NICHT neu
+# (vHost/Listen wuerden nie aktiv). reload-or-restart ist die Quelle des Fixes.
+systemctl reload-or-restart apache2
+if ! systemctl is-active apache2 >/dev/null; then
+  echo "[GAST] FEHLER: apache2 nicht active – Diagnose:" >&2
+  systemctl status apache2.service --no-pager >&2 || true
+  journalctl -u apache2.service --no-pager --lines=30 >&2 || true
+  exit 1
+fi
 echo "[GAST] Apache laeuft auf Port ${APP_PORT}."
 
 # ---------------------------------------------------------------------------
@@ -175,13 +184,22 @@ fi
 
 cat > /usr/local/bin/lifeos-healthcheck <<'CHECK'
 #!/usr/bin/env bash
-# LifeOS Boot-/Health-Check (von lifeos.service aufgerufen)
+# LifeOS Boot-/Health-Check (von lifeos.service aufgerufen).
+# Frisch gestartete Dienste brauchen Sekunden (Socket, DB-Init) -> pollen, nicht einmalig.
 set -euo pipefail
 PORT_FILE="/etc/lifeos.port"
 PORT="8080"
 [[ -f "$PORT_FILE" ]] && PORT="$(cat "$PORT_FILE")"
+for _ in $(seq 1 12); do
+  mariadb-admin ping --silent 2>/dev/null && break
+  sleep 5
+done
 mariadb-admin ping --silent || { echo "MariaDB antwortet nicht" >&2; exit 1; }
-curl -fs -m 15 "http://127.0.0.1:${PORT}/login.php" >/dev/null \
+for _ in $(seq 1 12); do
+  curl -fs -m 10 "http://127.0.0.1:${PORT}/login.php" >/dev/null 2>&1 && break
+  sleep 5
+done
+curl -fs -m 10 "http://127.0.0.1:${PORT}/login.php" >/dev/null \
   || { echo "LifeOS Web UI antwortet nicht auf :${PORT}" >&2; exit 1; }
 echo "LifeOS OK (DB + http://127.0.0.1:${PORT}/login.php)"
 CHECK
