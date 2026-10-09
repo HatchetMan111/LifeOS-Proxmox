@@ -46,7 +46,7 @@ CTID_ARG="${CTID:-}"
 CORES_ARG="${CORES:-$DEFAULT_CORES}"
 RAM_ARG="${RAM:-$DEFAULT_RAM}"
 DISK_ARG="${DISK:-$DEFAULT_DISK}"
-HOSTNAME_ARG="${HOSTNAME_ARG:-${HOSTNAME:-}}"
+HOSTNAME_ARG="${CT_HOSTNAME:-${HOSTNAME_ARG:-}}"
 LIFEOS_USER_ARG="${LIFEOS_USER:-}"
 LIFEOS_PASSWORD_ARG="${LIFEOS_PASSWORD:-}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-0}"
@@ -89,7 +89,7 @@ Usage:
   bash -c "\$(wget -qLO - ${INSTALLER_REPO}/main/install/lifeos.sh)"
 
 Optionen:
-  --ctid ID            CT-ID (Default: interaktiv, Vorschlag = naechste freie ID)
+  --ctid ID            CT-ID (Default: interaktiv, Vorschlag = naechste freie ID; existiert sie -> Update-Modus)
   --hostname NAME      CT-Hostname (Default: ${DEFAULT_HOSTNAME})
   --cores N            vCPU (Default: ${DEFAULT_CORES})
   --memory MB          RAM in MB (Default: ${DEFAULT_RAM})
@@ -114,9 +114,11 @@ CTID="$CTID_ARG" CORES="$CORES_ARG" RAM="$RAM_ARG" DISK="$DISK_ARG"
 HOSTNAME_VAL="$HOSTNAME_ARG" STORAGE_ARG="$DEFAULT_STORAGE" BRIDGE="$DEFAULT_BRIDGE"
 REF="$INSTALLER_REF" VERSION="$UPSTREAM_REF" ROOTPW=""
 LIFEOS_USER="$LIFEOS_USER_ARG" LIFEOS_PASSWORD="$LIFEOS_PASSWORD_ARG"
+CTID_EXPLICIT=0
+[[ -n "$CTID_ARG" ]] && CTID_EXPLICIT=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --ctid) CTID="$2"; shift 2;;
+    --ctid) CTID="$2"; CTID_EXPLICIT=1; shift 2;;
     --hostname) HOSTNAME_VAL="$2"; shift 2;;
     --cores) CORES="$2"; shift 2;;
     --memory|--ram) RAM="$2"; shift 2;;
@@ -136,9 +138,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-CTID_EXPLICIT=0
-[[ -n "$CTID_ARG" ]] && CTID_EXPLICIT=1
-
 rand_hex() { openssl rand -hex "${1:-16}" 2>/dev/null || head -c "$(( ${1:-16} * 2 ))" /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 
 ask() {
@@ -149,7 +148,7 @@ ask() {
     return 0
   fi
   if [[ "$secret" == "1" ]]; then
-    read -r -s -p "$prompt [${def:0:4}****]: " ans || true
+    read -r -s -p "$prompt [Enter = generiertes Passwort uebernehmen, bitte ohne Hochkomma]: " ans || true
     echo ""
   else
     read -r -p "$prompt [$def]: " ans || true
@@ -238,6 +237,9 @@ OSTEMPLATE="${DEFAULT_TEMPLATE_STORAGE}:vztmpl/${TEMPLATE_FILE}"
 # ---------------------------------------------------------------------------
 if pct status "$CTID" >/dev/null 2>&1; then
   msg_warn "CT $CTID existiert – ueberspringe Erstellung (Update-Modus)."
+  msg_info "Heile CT-Config (idempotent): onboot=1, nesting=1 (MariaDB braucht Mount-Namespace), Hostname=$HOSTNAME_VAL ..."
+  pct set "$CTID" --onboot 1 --features nesting=1 --hostname "$HOSTNAME_VAL" \
+    || msg_warn "pct set schlug fehl – weiter mit bestehender CT-Config."
 else
   [[ -n "$ROOTPW" ]] || ROOTPW="$(rand_hex 12)"
   msg_info "Erstelle CT $CTID ($HOSTNAME_VAL): $CORES vCPU / $RAM MB / ${DISK}G ..."
@@ -248,9 +250,10 @@ else
     --rootfs "${STORAGE_ARG}:${DISK}" \
     --net0 "name=eth0,bridge=${BRIDGE},ip=dhcp" \
     --onboot 1 \
+    --features "nesting=1" \
     --unprivileged 1 \
     --nameserver "1.1.1.1 8.8.8.8"
-  msg_ok "CT $CTID erstellt (onboot=1, unprivileged)."
+  msg_ok "CT $CTID erstellt (onboot=1, nesting=1, unprivileged)."
   pct start "$CTID" \
     || { msg_error "pct start scheiterte (oft RAM/Storage voll). free -m und pvesm status pruefen."; exit 1; }
   msg_ok "CT $CTID laeuft."
@@ -355,7 +358,7 @@ echo "════════════════ INSTALLATION ERFOLGREICH 
 echo "  App          : LifeOS – Self-hosted Life OS"
 echo "  Upstream     : $UPSTREAM_REPO ($VERSION)"
 echo "  Installer    : $INSTALLER_REPO ($REF)"
-echo "  CT           : $CTID (Name: $HOSTNAME_VAL, onboot=1, unprivileged)"
+echo "  CT           : $CTID (Name: $HOSTNAME_VAL, onboot=1, nesting=1, unprivileged)"
 echo "  Ressourcen   : $CORES vCPU / $RAM MB RAM / $DISK GB Disk"
 echo "  Web UI       : http://${CT_IP}:${APP_PORT}"
 echo "  Login        : ${LIFEOS_USER} / ${LIFEOS_PASSWORD} (nur jetzt angezeigt!)"

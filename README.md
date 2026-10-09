@@ -34,13 +34,13 @@ bash lifeos.sh --debug              # = bash -x, komplette Fehlermeldungskette +
 | Standard-Ressourcen | 2 vCPU / 2048 MB RAM / 8 GB Disk (Minimum 1 / 1024 / 4) |
 | CT-ID | Vorschlag ist immer die **nächste freie ID** (`pvesh get /cluster/nextid`); belegte ID → Ausweichen, existierende ID + `--ctid` → Update-Modus |
 | Template | Debian-12-Standard (`pveam`, `debian-12-standard*.tar.*`) |
-| CT-Features | `onboot: 1`, unprivileged, DHCP, DNS `1.1.1.1 8.8.8.8` |
+| CT-Features | `onboot: 1`, `nesting: 1` (MariaDB-Hardening), unprivileged, DHCP, DNS `1.1.1.1 8.8.8.8` |
 
 Das Host-Skript (`set -euo pipefail`, idempotent, `trap ERR` mit Befehl+Zeile+Exit-Code):
 1. prüft Host/Tools (root, `pct/pvesh/pvesm`), fragt CT-ID (Default: nächste freie), Hostname,
    Ressourcen, Bridge/Storage und LifeOS-Login interaktiv ab (alles per Flag/Env übersteuerbar),
    erkennt Disk-Storage (bevorzugt `local-lvm`), lädt das Debian-12-Template falls nötig,
-2. erstellt den CT `lifeos` (`onboot: 1`, unprivileged, DHCP, zufälliges Root-PW),
+2. erstellt den CT `lifeos` (`onboot: 1`, `nesting: 1`, unprivileged, DHCP, Hostname `lifeos`, zufälliges Root-PW),
    startet ihn und wartet auf die Gast-IP,
 3. lädt `install/setup.sh` + `systemd/lifeos.service` aus diesem Repo, pusht sie per `pct push`
    in den Gast und führt das Setup aus: Apache + PHP + MariaDB, Upstream-Clone nach

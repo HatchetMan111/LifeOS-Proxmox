@@ -17,6 +17,7 @@ APP_DIR="${7:-/opt/lifeos}"
 UPSTREAM_REPO="https://github.com/edrisranjbar/lifeos"
 
 export DEBIAN_FRONTEND=noninteractive
+export LANG=C.UTF-8 LC_ALL=C.UTF-8
 echo "[GAST] LifeOS-Setup: user=$LIFEOS_USER port=$APP_PORT upstream=$UPSTREAM_REF dir=$APP_DIR"
 
 # apt-Lock abwarten (Erstboot)
@@ -41,14 +42,35 @@ php -m | grep -qi pdo_mysql || { echo "[GAST] FEHLER: pdo_mysql fehlt" >&2; exit
 # ---------------------------------------------------------------------------
 # MariaDB: Dienst an, DB + User idempotent anlegen
 # ---------------------------------------------------------------------------
-systemctl enable --now mariadb
+if ! systemctl enable --now mariadb; then
+  echo "[GAST] FEHLER: mariadb startet nicht – Diagnose:" >&2
+  systemctl status mariadb.service --no-pager >&2 || true
+  journalctl -u mariadb.service --no-pager --lines=40 >&2 || true
+  tail -n 50 /var/log/mysql/error.log >&2 || true
+  echo "[GAST] Hinweis: Unprivilegierter LXC braucht dafuer 'nesting=1' (Host: pct set <ID> --features nesting=1)." >&2
+  exit 1
+fi
 echo "[GAST] Warte auf MariaDB ..."
 for _ in $(seq 1 12); do
   mariadb-admin ping --silent 2>/dev/null && break
   sleep 5
 done
-mariadb-admin ping --silent \
-  || { echo "[GAST] FEHLER: MariaDB antwortet nicht. journalctl -u mariadb pruefen." >&2; exit 1; }
+if ! mariadb-admin ping --silent; then
+  echo "[GAST] FEHLER: MariaDB antwortet nicht – Diagnose:" >&2
+  systemctl status mariadb.service --no-pager >&2 || true
+  journalctl -u mariadb.service --no-pager --lines=30 >&2 || true
+  exit 1
+fi
+
+# Update-Modus: config.php ist fuehrend – Passwort von dort lesen, damit
+# ALTER USER und App-Config niemals auseinanderlaufen (Frisch-Install: Arg).
+if [[ -f "$APP_DIR/config.php" ]]; then
+  EXISTING_DB_PASS="$(grep -oP "'db_password'\\s*=>\\s*'\\K[^']+" "$APP_DIR/config.php" || true)"
+  if [[ -n "${EXISTING_DB_PASS:-}" ]]; then
+    echo "[GAST] Update-Modus: DB-Passwort aus config.php uebernommen."
+    DB_PASS="$EXISTING_DB_PASS"
+  fi
+fi
 
 mariadb -u root <<SQL
 CREATE DATABASE IF NOT EXISTS lifeos CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
