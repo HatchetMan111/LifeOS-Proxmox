@@ -1,0 +1,13 @@
+[Unit]
+Description=LifeOS Stack (Apache + MariaDB Health-Check)
+Documentation=https://github.com/edrisranjbar/lifeos
+After=network-online.target apache2.service mariadb.service
+Wants=network-online.target apache2.service mariadb.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/lifeos-healthcheck
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
